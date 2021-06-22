@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="" xml:lang="">
+  <head>
+    <title>data.table para usuarios de dplyr y tidyverse</title>
+    <meta charset="utf-8" />
+    <meta name="author" content="@telaroz" />
+    <meta name="date" content="2021-04-29" />
+    <script src="libs/header-attrs/header-attrs.js"></script>
+    <link href="libs/remark-css/default.css" rel="stylesheet" />
+    <link href="libs/remark-css/tamu.css" rel="stylesheet" />
+    <link href="libs/remark-css/tamu-fonts.css" rel="stylesheet" />
+    <script src="libs/kePrint/kePrint.js"></script>
+    <link href="libs/lightable/lightable.css" rel="stylesheet" />
+    <link rel="stylesheet" href="libs/cols.css" type="text/css" />
+  </head>
+  <body>
+    <textarea id="source">
+class: center, middle, inverse, title-slide
+
+# data.table para usuarios de dplyr y tidyverse
+## Valery Zúñiga Kondrashov
+### <span class="citation">@telaroz</span>
+### Webinario Data Latam
+### 2021-04-29
+
+---
+
+&lt;style type="text/css"&gt;
+# CSS for including pauses in printed PDF output (see bottom of lecture)
+@media print {
+  .has-continuation {
+    display: block !important;
+  }
+}
+.large4 { font-size: 400% }
+.large2 { font-size: 200% }
+.small90 { font-size: 90% }
+.small75 { font-size: 75% }
+&lt;/style&gt;
+
+
+
+# Agenda
+
+1. [Introduccion a data.table](#introduccion)
+
+2. [Sintaxis](#sintaxis)
+
+3. [Velocidad](#basics)
+
+4. [Uso de Memoria RAM](#memoria)
+
+5. [Keys](#keys)
+
+6. [Joins](#joins)
+
+7. [Pivoteo](#reshape)
+
+8. [Programacion](#programacion)
+
+9. [dtplyr](#dtplyr)
+
+10. [Flujos de trabajo de data.table + tidyverse](#tidyverse)
+
+
+
+---
+name: introduccion
+
+# Introducción a data.table
+
+
+`data.table` es un paquete con gran cantidad de herramientas para la manipulación de datos. Es una extensión de un data.frame. 
+
+--
+
+Varias características principales lo diferencian de otras herramientas de manipulación de datos:
+
+- Sintaxis compacta
+
+--
+
+- Eficiencia en uso de memoria RAM
+
+--
+
+- Gran Velocidad
+
+--
+
+Descripciones adicionales, artículos y presentaciones sobre `data.table` se pueden encontrar en la página principal: 
+&lt;https://rdatatable.gitlab.io/data.table/&gt;
+---
+name: sintaxis
+# Sintaxis
+![Sintaxis Básica data.table](sintaxis_bonita.png)
+
+--
+
+.pull-left[
+
+
+```r
+data(mpg, package = "ggplot2")
+mpg %&gt;%
+  filter(year &gt; 1999) %&gt;%
+  group_by(manufacturer) %&gt;%
+  summarise(prom_cil = mean(cyl))
+```
+
+]
+
+.pull-right[
+
+
+```r
+mpg_dt = as.data.table(ggplot2::mpg)
+mpg_dt[
+       i  = year &gt; 1999, 
+       j  = list(prom_cil = mean(cyl)), 
+       by = manufacturer]
+```
+]
+
+---
+# Sintaxis
+
+.pull-left[
+## Encadenando dplyr
+
+```r
+mpg %&gt;%
+  filter(year &gt; 1999) %&gt;%
+  group_by(manufacturer) %&gt;%
+  summarise(prom_cil = mean(cyl)) %&gt;% 
+  arrange(prom_cil)
+```
+
+]
+
+
+.pull-right[
+## Encadenando data.table
+
+```r
+mpg_dt[year &gt; 1999, 
+       list(prom_cil = mean(cyl)), 
+       by = manufacturer
+     ][order(prom_cil)]
+```
+]
+
+
+--
+
+.pull-right[
+
+```r
+mpg_dt[year &gt; 1999, 
+       .(prom_cil = mean(cyl)), 
+       by = manufacturer] %&gt;% 
+  .[order(prom_cil)]
+```
+]
+
+---
+name: velocidad
+
+# Velocidad
+
+&lt;img src="benchmark.PNG" width="635"&gt;
+
+
+---
+name: Uso de memoria ram
+# Uso de Memoria
+![Error Memoria](error_memoria.PNG)
+
+--
+### Agregar una nueva columna 
+
+.pull-left[
+##### dplyr
+
+```r
+mpg &lt;- mpg %&gt;%
+  mutate(cub_cyl = cyl^3)
+```
+
+]
+
+.pull-right[
+##### data.table
+
+```r
+mpg_dt[, cub_cyl := cyl^3]
+```
+
+]
+
+--
+
+### Reordenar columnas
+
+.pull-left[
+
+
+```r
+mpg &lt;- mpg %&gt;% 
+  select(model, everything())
+```
+
+]
+
+.pull-right[
+
+```r
+setcolorder(mpg_dt, c('model'))
+```
+
+]
+---
+name: keys
+# Keys
+
+Un key es un atributo de una columna. 
+
+Esta columna está ordenada, por lo que filtros y operaciones por grupo son muy eficientes.
+
+--
+
+En una búsqueda clásica, es necesario pasar por todos los valores para encontrar lo que buscamos. 
+Con la columna ordenada podemos usar un algoritmo de búsqueda binaria.
+
+--
+
+&lt;img src="busqueda_binaria.PNG" width="345" class="center"&gt;
+
+---
+
+
+```r
+mpg_dt &lt;- data.table::as.data.table(ggplot2::mpg)
+mpg_dt[1:6, 1:5]
+```
+
+```
+##    manufacturer model displ year cyl
+## 1:         audi    a4   1.8 1999   4
+## 2:         audi    a4   1.8 1999   4
+## 3:         audi    a4   2.0 2008   4
+## 4:         audi    a4   2.0 2008   4
+## 5:         audi    a4   2.8 1999   6
+## 6:         audi    a4   2.8 1999   6
+```
+
+--
+
+
+```r
+data.table::setkey(mpg_dt, year)
+mpg_dt[1:6, 1:5]
+```
+
+```
+##    manufacturer      model displ year cyl
+## 1:         audi         a4   1.8 1999   4
+## 2:         audi         a4   1.8 1999   4
+## 3:         audi         a4   2.8 1999   6
+## 4:         audi         a4   2.8 1999   6
+## 5:         audi a4 quattro   1.8 1999   4
+## 6:         audi a4 quattro   1.8 1999   4
+```
+
+```r
+data.table::key(mpg_dt)
+```
+
+```
+## [1] "year"
+```
+---
+name: joins
+
+# Joins
+
+&lt;table class="table" style="width: auto !important; margin-left: auto; margin-right: auto;"&gt;
+ &lt;thead&gt;
+  &lt;tr&gt;
+   &lt;th style="text-align:left;"&gt; Funciones dplyr &lt;/th&gt;
+   &lt;th style="text-align:left;"&gt; Funciones data.table &lt;/th&gt;
+  &lt;/tr&gt;
+ &lt;/thead&gt;
+&lt;tbody&gt;
+  &lt;tr&gt;
+   &lt;td style="text-align:left;"&gt; left_join(x, y) &lt;/td&gt;
+   &lt;td style="text-align:left;"&gt; merge(x, y, all.x = TRUE) &lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+   &lt;td style="text-align:left;"&gt; right_join(x, y) &lt;/td&gt;
+   &lt;td style="text-align:left;"&gt; merge(x, y, all.y = TRUE) &lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+   &lt;td style="text-align:left;"&gt; inner_join(x, y) &lt;/td&gt;
+   &lt;td style="text-align:left;"&gt; merge(x, y) &lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+   &lt;td style="text-align:left;"&gt; full_join(x, y) &lt;/td&gt;
+   &lt;td style="text-align:left;"&gt; merge(x, y, all = TRUE) &lt;/td&gt;
+  &lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+
+--
+
+
+&lt;img src="merge.PNG" width="390"&gt;
+
+
+--
+
+##### Rolling joins
+
+
+```r
+x[y, on = .(variable_numerica), roll = "nearest"]
+```
+
+
+
+---
+### Non-equi joins
+Supongamos que los carros premium son aquellos que tienen un _displ_ mayor a cierto valor **además** de un _cyl_ menor a cierto valor.
+
+--
+
+
+```r
+(premium_cars &lt;- data.table(premium_displ = c(2.5, 4), premium_cyl = c(5, 7),
+                            premium = 'Si'))
+```
+
+```
+##    premium_displ premium_cyl premium
+##            &lt;num&gt;       &lt;num&gt;  &lt;char&gt;
+## 1:           2.5           5      Si
+## 2:           4.0           7      Si
+```
+
+
+--
+
+
+
+```r
+ggplot2::mpg %&gt;% 
+  dplyr::filter((displ &gt; 2.5 &amp; cyl &lt; 5) | (displ &gt; 4.0 &amp; cyl &lt; 7))
+```
+
+```
+## # A tibble: 7 x 11
+##   manufacturer model     displ  year   cyl trans   drv     cty   hwy fl    class
+##   &lt;chr&gt;        &lt;chr&gt;     &lt;dbl&gt; &lt;int&gt; &lt;int&gt; &lt;chr&gt;   &lt;chr&gt; &lt;int&gt; &lt;int&gt; &lt;chr&gt; &lt;chr&gt;
+## 1 ford         f150 pic~   4.2  1999     6 auto(l~ 4        14    17 r     pick~
+## 2 ford         f150 pic~   4.2  1999     6 manual~ 4        14    17 r     pick~
+## 3 toyota       4runner ~   2.7  1999     4 manual~ 4        15    20 r     suv  
+## 4 toyota       4runner ~   2.7  1999     4 auto(l~ 4        16    20 r     suv  
+## 5 toyota       toyota t~   2.7  1999     4 manual~ 4        15    20 r     pick~
+## 6 toyota       toyota t~   2.7  1999     4 auto(l~ 4        16    20 r     pick~
+## 7 toyota       toyota t~   2.7  2008     4 manual~ 4        17    22 r     pick~
+```
+
+---
+## Non-equi join (+ update)
+
+
+```r
+mpg_dt &lt;- data.table::as.data.table(ggplot2::mpg)
+```
+
+--
+
+
+```r
+mpg_dt[premium_cars, on = .(displ &gt; premium_displ, cyl &lt; premium_cyl),
+       carro_premium := i.premium]
+```
+
+--
+
+
+```r
+mpg_dt[carro_premium == 'Si'][, c(1:6, 12)]
+```
+
+```
+##    manufacturer             model displ year cyl      trans carro_premium
+## 1:         ford   f150 pickup 4wd   4.2 1999   6   auto(l4)            Si
+## 2:         ford   f150 pickup 4wd   4.2 1999   6 manual(m5)            Si
+## 3:       toyota       4runner 4wd   2.7 1999   4 manual(m5)            Si
+## 4:       toyota       4runner 4wd   2.7 1999   4   auto(l4)            Si
+## 5:       toyota toyota tacoma 4wd   2.7 1999   4 manual(m5)            Si
+## 6:       toyota toyota tacoma 4wd   2.7 1999   4   auto(l4)            Si
+## 7:       toyota toyota tacoma 4wd   2.7 2008   4 manual(m5)            Si
+```
+
+---
+name: reshape
+
+# Pivotar datos
+
+Las funciones para pivotar datos de data.table son _en general_ más flexibles, son más poderosas, rápidas y son más eficientes que sus contrapartes de `tidyr`. 
+
+&lt;table class="table" style="width: auto !important; margin-left: auto; margin-right: auto;"&gt;
+ &lt;thead&gt;
+  &lt;tr&gt;
+   &lt;th style="text-align:left;"&gt; Funciones tidyr &lt;/th&gt;
+   &lt;th style="text-align:left;"&gt; Funciones data.table &lt;/th&gt;
+  &lt;/tr&gt;
+ &lt;/thead&gt;
+&lt;tbody&gt;
+  &lt;tr&gt;
+   &lt;td style="text-align:left;"&gt; pivot_longer &lt;/td&gt;
+   &lt;td style="text-align:left;"&gt; dcast &lt;/td&gt;
+  &lt;/tr&gt;
+  &lt;tr&gt;
+   &lt;td style="text-align:left;"&gt; pivot_wider &lt;/td&gt;
+   &lt;td style="text-align:left;"&gt; melt &lt;/td&gt;
+  &lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+
+
+---
+name: programacion
+# Programacion Funcional
+
+
+.pull-left[
+
+
+```r
+resumidora &lt;- function(col_agrup){
+  mpg %&gt;% 
+    group_by({{col_agrup}}) %&gt;% 
+    summarise(sum(displ))
+}
+
+resumidora(model)
+```
+
+]
+
+
+
+.pull-right[
+
+```r
+resumidora_dt &lt;- function(col_agrup){
+  mpg_dt[, sum(displ), by = col_agrup]
+}
+
+
+resumidora_dt('model')
+```
+
+]
+
+--
+
+.pull-left[
+
+
+```r
+resumidora2 &lt;- function(col_agrup){
+  mpg %&gt;% 
+    group_by_(col_agrup) %&gt;% 
+    summarise(sum(displ))
+}
+
+resumidora2('model')
+
+# OJO, las funciones *_
+# de dplyr están deprecadas
+```
+
+]
+
+.pull-right[
+
+```r
+resumidora_dt2 &lt;- function(col_agrup){
+  variable &lt;- substitute(col_agrup)
+  
+  mpg_dt[, sum(displ), by = variable]
+}
+
+resumidora_dt2(model)
+resumidora_dt2('model')
+```
+]
+---
+name: dtplyr
+
+# Dtplyr
+
+El paquete dtplyr es un traductor de código de dplyr a data.table. 
+
+--
+
+Uso básico:
+
+
+```r
+library(dplyr)
+library(dtplyr)
+
+data(mpg, package = "ggplot2")
+mpg %&gt;%
+* lazy_dt() %&gt;%
+  filter(year &gt; 1999) %&gt;%
+  group_by(manufacturer) %&gt;%
+  summarise(prom_cil = mean(cyl)) %&gt;% 
+* as_tibble()
+```
+
+
+--
+A partir de la versión 1.1.0 (Febrero 2021): [Noticias_dtplyr](https://cran.r-project.org/web/packages/dtplyr/news/news.html)
+
+
+Pasar un data.table a una función de dplyr, lo convierte automáticamente a un lazy_dt(), por lo que es un poco más sencillo moverse entre la sintaxis de data.table y dplyr. 
+
+
+&lt;https://www.tidyverse.org/blog/2019/11/dtplyr-1-0-0/&gt;
+---
+name: demo
+
+# Flujos de trabajo de data.table + tidyverse
+
+
+#### Datos
+
+
+&lt;img src="netflix_dataset.PNG" width="600" class="center"&gt;
+--
+
+#### Demo
+
+
+```r
+data_keyed &lt;- data.table::fread('data_netflix.csv', key = 'cliente')
+
+data_keyed %&gt;% # Entra un data.table
+  filter(!(cliente %in% clientes_premium)) %&gt;% 
+  group_by(cliente) %&gt;% 
+  summarise(suma_calificaciones = sum(calificacion), cantidad_calificaciones = n()) %&gt;% 
+  filter(cantidad_calificaciones &lt; 100) %&gt;% 
+* as_tibble() %&gt;%
+  ggplot2::ggplot(ggplot2::aes(x = cantidad_calificaciones)) + 
+  ggplot2::geom_density()
+```
+
+
+---
+Otras referencias y recursos adicionales
+
+A gentle introduction to data.table
+
+&lt;https://atrebas.github.io/post/2020-06-17-datatable-introduction/&gt;
+
+--
+
+A data.table and dplyr tour
+
+&lt;https://atrebas.github.io/post/2019-03-03-datatable-dplyr/&gt;
+
+
+--
+Dataset utilizado en el demo
+
+&lt;https://www.kaggle.com/netflix-inc/netflix-prize-data&gt;
+
+--
+
+Benchmarks de la diapositiva Velocidad
+
+&lt;https://h2oai.github.io/db-benchmark/&gt;
+
+    </textarea>
+<style data-target="print-only">@media screen {.remark-slide-container{display:block;}.remark-slide-scaler{box-shadow:none;}}</style>
+<script src="https://remarkjs.com/downloads/remark-latest.min.js"></script>
+<script>var slideshow = remark.create({
+"highlightStyle": "github",
+"highlightLines": true,
+"countIncrementalSlides": false
+});
+if (window.HTMLWidgets) slideshow.on('afterShowSlide', function (slide) {
+  window.dispatchEvent(new Event('resize'));
+});
+(function(d) {
+  var s = d.createElement("style"), r = d.querySelector(".remark-slide-scaler");
+  if (!r) return;
+  s.type = "text/css"; s.innerHTML = "@page {size: " + r.style.width + " " + r.style.height +"; }";
+  d.head.appendChild(s);
+})(document);
+
+(function(d) {
+  var el = d.getElementsByClassName("remark-slides-area");
+  if (!el) return;
+  var slide, slides = slideshow.getSlides(), els = el[0].children;
+  for (var i = 1; i < slides.length; i++) {
+    slide = slides[i];
+    if (slide.properties.continued === "true" || slide.properties.count === "false") {
+      els[i - 1].className += ' has-continuation';
+    }
+  }
+  var s = d.createElement("style");
+  s.type = "text/css"; s.innerHTML = "@media print { .has-continuation { display: none; } }";
+  d.head.appendChild(s);
+})(document);
+// delete the temporary CSS (for displaying all slides initially) when the user
+// starts to view slides
+(function() {
+  var deleted = false;
+  slideshow.on('beforeShowSlide', function(slide) {
+    if (deleted) return;
+    var sheets = document.styleSheets, node;
+    for (var i = 0; i < sheets.length; i++) {
+      node = sheets[i].ownerNode;
+      if (node.dataset["target"] !== "print-only") continue;
+      node.parentNode.removeChild(node);
+    }
+    deleted = true;
+  });
+})();
+(function() {
+  "use strict"
+  // Replace <script> tags in slides area to make them executable
+  var scripts = document.querySelectorAll(
+    '.remark-slides-area .remark-slide-container script'
+  );
+  if (!scripts.length) return;
+  for (var i = 0; i < scripts.length; i++) {
+    var s = document.createElement('script');
+    var code = document.createTextNode(scripts[i].textContent);
+    s.appendChild(code);
+    var scriptAttrs = scripts[i].attributes;
+    for (var j = 0; j < scriptAttrs.length; j++) {
+      s.setAttribute(scriptAttrs[j].name, scriptAttrs[j].value);
+    }
+    scripts[i].parentElement.replaceChild(s, scripts[i]);
+  }
+})();
+(function() {
+  var links = document.getElementsByTagName('a');
+  for (var i = 0; i < links.length; i++) {
+    if (/^(https?:)?\/\//.test(links[i].getAttribute('href'))) {
+      links[i].target = '_blank';
+    }
+  }
+})();
+// adds .remark-code-has-line-highlighted class to <pre> parent elements
+// of code chunks containing highlighted lines with class .remark-code-line-highlighted
+(function(d) {
+  const hlines = d.querySelectorAll('.remark-code-line-highlighted');
+  const preParents = [];
+  const findPreParent = function(line, p = 0) {
+    if (p > 1) return null; // traverse up no further than grandparent
+    const el = line.parentElement;
+    return el.tagName === "PRE" ? el : findPreParent(el, ++p);
+  };
+
+  for (let line of hlines) {
+    let pre = findPreParent(line);
+    if (pre && !preParents.includes(pre)) preParents.push(pre);
+  }
+  preParents.forEach(p => p.classList.add("remark-code-has-line-highlighted"));
+})(document);</script>
+
+<script>
+slideshow._releaseMath = function(el) {
+  var i, text, code, codes = el.getElementsByTagName('code');
+  for (i = 0; i < codes.length;) {
+    code = codes[i];
+    if (code.parentNode.tagName !== 'PRE' && code.childElementCount === 0) {
+      text = code.textContent;
+      if (/^\\\((.|\s)+\\\)$/.test(text) || /^\\\[(.|\s)+\\\]$/.test(text) ||
+          /^\$\$(.|\s)+\$\$$/.test(text) ||
+          /^\\begin\{([^}]+)\}(.|\s)+\\end\{[^}]+\}$/.test(text)) {
+        code.outerHTML = code.innerHTML;  // remove <code></code>
+        continue;
+      }
+    }
+    i++;
+  }
+};
+slideshow._releaseMath(document);
+</script>
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+(function () {
+  var script = document.createElement('script');
+  script.type = 'text/javascript';
+  script.src  = 'https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-MML-AM_CHTML';
+  if (location.protocol !== 'file:' && /^https?:/.test(script.src))
+    script.src  = script.src.replace(/^https?:/, '');
+  document.getElementsByTagName('head')[0].appendChild(script);
+})();
+</script>
+  </body>
+</html>
